@@ -1,0 +1,67 @@
+# .github/workflows/auto-sync-master.yml
+name: Auto Sync master Branch (Single Author)
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Check every 10 minutes
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          
+      - name: Configure git
+        run: |
+          git config --local user.email "morad890@gmail.com"
+          git config --local user.name "Morad Abed"
+          
+      - name: Setup upstream and sync with single authorship
+        run: |
+          # Add upstream remote
+          git remote add upstream https://github.com/openearth/sandbox-fm.git
+          
+          # Fetch upstream master branch
+          git fetch upstream master
+          
+          # Switch to master branch (create if doesn't exist)
+          git checkout master 2>/dev/null || git checkout -b master origin/master 2>/dev/null || git checkout -b master upstream/master
+          
+          # Check if upstream has new commits
+          LOCAL_COMMIT=$(git rev-parse HEAD)
+          UPSTREAM_COMMIT=$(git rev-parse upstream/master)
+          
+          echo "Local commit: $LOCAL_COMMIT"
+          echo "Upstream commit: $UPSTREAM_COMMIT"
+          
+          if [ "$LOCAL_COMMIT" != "$UPSTREAM_COMMIT" ]; then
+            echo "🔄 New commits detected, syncing with single authorship..."
+            
+            # Get current timestamp for commit message
+            TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S UTC')
+            
+            # Reset to upstream state but keep as staged changes
+            git reset --soft upstream/master
+            
+            # Create a single commit with all changes under your authorship
+            git commit -m "Sync from upstream - $TIMESTAMP" --author="Morad Abed <morad890@gmail.com>" || echo "No changes to commit"
+            
+            # Push to fork (force push to overwrite history)
+            git push origin master --force-with-lease
+            
+            echo "✅ Successfully synced master branch with single authorship"
+            echo "NEW_COMMITS=true" >> $GITHUB_ENV
+          else
+            echo "ℹ️ No new commits found, already up to date"
+            echo "NEW_COMMITS=false" >> $GITHUB_ENV
+          fi
+          
+      - name: Notify sync completion
+        if: env.NEW_COMMITS == 'true'
+        run: |
+          echo "🚀 master branch synced with single authorship! Netlify should auto-deploy."
+          echo "💰 Only one contributor (you) will be counted for billing."
